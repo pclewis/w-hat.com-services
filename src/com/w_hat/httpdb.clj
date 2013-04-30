@@ -3,20 +3,26 @@
             [taoensso.carmine :as car]
             [pallet.md5crypt :as md5]))
 
-(defn create-user
+(defn- httpdb-key [uuid] (str "hdb:" uuid))
+(defn- meta-key   [uuid] (str "hdb:" uuid ":meta"))
+
+(defn- ensure-user-exists
   [uuid]
-  (let [user {:space-available 250000
-              :space-used      0}]
-    (db/wcar (car/hset "httpdb-users" uuid user))
-    user))
+   (db/wcar (car/hsetnx "httpdb-users" (str uuid :space-available) 250000)
+            (car/hsetnx "httpdb-users" (str uuid :space-used)      0)))
   
 (defn user
   [uuid]
-  (if-let [user (or (db/wcar (car/hget "httpdb-users" uuid)) (create-user uuid))]
-    (into user {:uuid uuid})))
+  (ensure-user-exists uuid)
+  (let [user (db/wcar (db/hgetmap "httpdb-users" uuid {:space-available        car/as-long
+                                                       :space-used             car/as-long
+                                                       :admin-password         identity
+                                                       :default-read-password  identity 
+                                                       :default-write-password identity}))]
+    (into user {:space-free (- (:space-available user) (:space-used user))
+                :uuid uuid})))
 
-(defn- httpdb-key [uuid] (str "hdb:" uuid))
-(defn- meta-key   [uuid] (str "hdb:" uuid ":meta"))
+(user masa)
 
 ;; TODO: hash new passwords with something better
 (defn- check-password
@@ -28,19 +34,22 @@
 (defn- serialized-length
   "Get the length of the serialized value of a key."
   [key]
-  (if (zero? (db/wcar (car/exists key)))
-    0
-    (. Integer parseInt (last (first (re-seq #"serializedlength:([0-9]+)" (db/wcar (car/debug-object key))))))))
+  (if (db/wcar (db/exists? key))
+    (. Integer parseInt (last (first (re-seq #"serializedlength:([0-9]+)" (db/wcar (car/debug-object key))))))
+    0))
 
-(defn update-space
+(defn update-space-used
   [user]
-  (let [hk (httpdb-key (:uuid user))
-        mk (meta-key (:uuid user))]
-    (db/wcar (car/watch hk)
-             (car/watch mk)
-             (car/multi)
-             (car/hset "httpdb-users" (:uuid user) (into user {:space-used (+ (serialized-length hk) (serialized-length mk))}))
-             (car/exec))))
+  (let [uuid (:uuid user)
+        hk   (httpdb-key uuid)
+        mk   (meta-key uuid)
+        res  (db/wcar (car/atomically
+                       [hk mk]
+                       (let [new-space-used (+ (serialized-length hk) (serialized-length mk))]
+                         (car/hset "httpdb-users" (str uuid :space-used) new-space-used)
+                         (car/echo new-space-used))))]
+    (if-not (empty? res) (Integer/parseInt (last res)))))
+
 
 (defn get-accessible-record
   "Look up record owned by owner and return it if user has read access to it with the supplied password."
@@ -53,8 +62,6 @@
           :denied)
         record)
       record)))
-
-(defn space-free [u] (- (:space-available u) (:space-used u)))
 
 ;; TODO: can set meta on new records
 (defn- set*
@@ -69,8 +76,7 @@
       (if (and (:write-password meta) (not (check-password password (:read-password meta) (:admin-password owner))))
         :denied
         (do (db/wcar (car/hset (httpdb-key (:uuid owner)) path wd))
-          (update-space owner)
-          (space-free (user (:uuid owner)))))))
+          (update-space-used owner)))))
 
 ;; TODO: encrypt passwords, filter attrs?
 (defn- set-meta*
@@ -80,8 +86,7 @@
     (let [meta (db/wcar (car/hget (meta-key (:uuid owner)) path))
           newmeta (into (or meta {}) attrs)]
       (do (db/wcar (car/hset (meta-key (:uuid owner)) path newmeta))
-        (update-space owner)
-        (space-free (user (:uuid owner)))))))
+        (update-space-used owner)))))
 
 (defn- set-user-meta*
   [requestor password attrs]
@@ -115,3 +120,5 @@
                                     (set-meta* requestor (user (:uuid match)) path password attrs))
         (.startsWith path "__")   :denied
         :else                     (set-meta* requestor requestor path password attrs)))
+
+
