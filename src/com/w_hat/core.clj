@@ -79,8 +79,6 @@
         nil {:status 404}
         (str resp)))))
 
-(httpdb/set (n2k/name2key "masakazu kojima") "hi" nil nil "test")
-
 (defroutes httpdb-routes
   (ANY ["/:path" :path #".*"] [path :as r] (handler-httpdb path r)))
 
