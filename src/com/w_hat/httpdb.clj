@@ -1,7 +1,11 @@
 (ns com.w-hat.httpdb
   (:require (com.w-hat [db :as db] [sl :as sl] [re :as re])
-            [taoensso.carmine :as car]
-            [pallet.md5crypt :as md5]))
+            [taoensso.carmine :as car])
+  (:import org.apache.commons.codec.digest.Crypt))
+
+(defn encrypt-password
+  ([pass] (Crypt/crypt pass))
+  ([pass salt] (Crypt/crypt pass salt)))
 
 (defn- httpdb-key [uuid] (str "hdb:" uuid))
 (defn- meta-key   [uuid] (str "hdb:" uuid ":meta"))
@@ -22,12 +26,11 @@
     (into user {:space-free (- (:space-available user) (:space-used user))
                 :uuid uuid})))
 
-;; TODO: hash new passwords with something better
 (defn check-password
   "Check if password matches any of crypted-pws"
   [password & crypted-pws]
   (if password
-    (some #(= % (md5/crypt password %)) (filter identity crypted-pws))))
+    (some #(= % (encrypt-password password %)) (filter identity crypted-pws))))
 
 (defn- serialized-length
   "Get the length of the serialized value of a key."
@@ -83,9 +86,10 @@
           (update-space-used owner)))))
 
 
-(defn- encrypt-passwords [m] (reduce #(update-in %1 [%2] md5/crypt) m
-                                     (filter #(.endsWith (str %) "-password")
-                                             (keys (filter val m)))))
+(defn- encrypt-passwords [m]
+  (reduce #(update-in %1 [%2] encrypt-password) m
+          (filter #(.endsWith (str %) "-password")
+                  (keys (filter val m)))))
 
 (defn- set-meta-generic [hkey prefix meta] (db/wcar (db/hsetmap hkey prefix (encrypt-passwords meta))))
 

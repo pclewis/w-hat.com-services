@@ -8,6 +8,7 @@
                  [ring/ring-devel "1.1.8"]
                  [org.clojure/tools.logging "0.2.6"]
                  [clj-logging-config "1.9.10"]
-                 [org.clojure/core.memoize "0.5.3"]]
+                 [org.clojure/core.memoize "0.5.3"]
+                 [commons-codec/commons-codec "1.8"]]
   :warn-on-reflection true
   :main com.w-hat.core)
