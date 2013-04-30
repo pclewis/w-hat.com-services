@@ -22,10 +22,8 @@
     (into user {:space-free (- (:space-available user) (:space-used user))
                 :uuid uuid})))
 
-(user masa)
-
 ;; TODO: hash new passwords with something better
-(defn- check-password
+(defn check-password
   "Check if password matches any of crypted-pws"
   [password & crypted-pws]
   (if password
@@ -38,7 +36,7 @@
     (. Integer parseInt (last (first (re-seq #"serializedlength:([0-9]+)" (db/wcar (car/debug-object key))))))
     0))
 
-(defn update-space-used
+(defn- update-space-used
   [user]
   (let [uuid (:uuid user)
         hk   (httpdb-key uuid)
@@ -50,6 +48,12 @@
                          (car/echo new-space-used))))]
     (if-not (empty? res) (Integer/parseInt (last res)))))
 
+(def RECORD_META [:date-created :date-updated :created-by :updated-by :read-password :write-password])
+(def USER_META [:admin-password :default-write-password :default-read-password])
+
+(defn- get-meta
+  [uuid path]
+  (db/wcar (db/hgetmap (meta-key uuid) path RECORD_META)))
 
 (defn get-accessible-record
   "Look up record owned by owner and return it if user has read access to it with the supplied password."
@@ -78,30 +82,32 @@
         (do (db/wcar (car/hset (httpdb-key (:uuid owner)) path wd))
           (update-space-used owner)))))
 
-;; TODO: encrypt passwords, filter attrs?
+
+(defn- encrypt-passwords [m] (reduce #(update-in %1 [%2] md5/crypt) m
+                                     (filter #(.endsWith (str %) "-password")
+                                             (keys (filter val m)))))
+
+(defn- set-meta-generic [hkey prefix meta] (db/wcar (db/hsetmap hkey prefix (encrypt-passwords meta))))
+
 (defn- set-meta*
   [requestor owner path password attrs]
   (if-not (check-password password (:admin-password owner))
     :denied
-    (let [meta (db/wcar (car/hget (meta-key (:uuid owner)) path))
-          newmeta (into (or meta {}) attrs)]
-      (do (db/wcar (car/hset (meta-key (:uuid owner)) path newmeta))
-        (update-space-used owner)))))
+    (do (set-meta-generic (meta-key (:uuid owner)) path (select-keys attrs RECORD_META))
+        (update-space-used owner))))
 
-(defn- set-user-meta*
+(defn- set-user-meta
   [requestor password attrs]
   (if-not (check-password password (:admin-password requestor))
     :denied
-    (let [newmeta (into {} (filter val {:default-read-password (:read-password attrs)
-                                        :default-write-password (:write-password attrs)}))]
-      (db/wcar (car/hset "httpdb-users" (:uuid requestor) (into (-> requestor :uuid user) newmeta))))))
+    (set-meta-generic "httpdb-users" (:uuid requestor) (select-keys attrs USER_META))))
  
 (def ^:private RE_SHARED_PATH (re-pattern (str "__/" , "(?<uuid>" sl/RE_UUID ")" , "/" , "(?<path>.*)" )))
 (defn get
   [requestor path password]
-  (cond (= path "__sys/space/free")      (- (:space-available user) (:space-used user))
-        (= path "__sys/space/used")      (:space-used user)
-        (= path "__sys/space/available") (:space-available user)
+  (cond (= path "__sys/space/free")      (:space-free requestor)
+        (= path "__sys/space/used")      (:space-used requestor)
+        (= path "__sys/space/available") (:space-available requestor)
         (.startsWith path "__/")         (if-let [match (re/match-exact RE_SHARED_PATH path)]
                                            (get-accessible-record requestor (user (:uuid match)) path password))
         :else                            (get-accessible-record requestor requestor path password)))
@@ -120,5 +126,3 @@
                                     (set-meta* requestor (user (:uuid match)) path password attrs))
         (.startsWith path "__")   :denied
         :else                     (set-meta* requestor requestor path password attrs)))
-
-

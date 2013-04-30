@@ -18,16 +18,33 @@
 
 (defn hgetmap
   "Look up mutliple keys with a given prefix in a hash and return them as a map.
-   Values in source map should be conversion function to apply.
+   If m is a map then value should be function to apply to convert value to desired type.
   
    Ex: Given a hash 'hash' with values pre:a=100, pre:b=200
        (hgetmap \"hash\" \"pre\" {:a car/as-long :b identity})
        => {:a 100 :b \"200\"}"
   [hkey prefix m]
-  (let [ks (keys m)
-        fs (vals m)]
+  (let [ks (if (map? m) (keys m) m)
+        fs (if (map? m) (vals m) (repeat identity))]
     (car/with-parser (fn [v] (apply hash-map (mapcat #(list %1 (if (nil? %3) nil (%2 %3))) ks fs v)))
                      (apply (partial car/hmget hkey) (map #(str prefix %) ks)))))
+
+(defn hsetmap
+  "Set multiple keys with a given prefix in a hash.
+   Values mapped to nil will be deleted from the hash.
+   Update and delete are done atomically."
+  [hkey prefix m]
+  (let [ks (remove (comp nil? val) m)
+        ds (filter (comp nil? val) m)]
+    (car/atomically []
+                    (if-not (empty? ks) (apply (partial car/hmset hkey) (mapcat #(list (str prefix (key %)) (val %)) ks)))
+                    (if-not (empty? ds) (apply (partial car/hdel hkey)  (map #(str prefix %) (keys ds)))))))
+
+
+
+(comment
+  (wcar (hsetmap "testing123" "wee" {:a nil :b 4 :c 16}))
+  (prn (wcar (car/hgetall "testing123"))))
 
 (comment (wcar (hgetmap "httpdb-users" com.w-hat.httpdb/masa {:space-used car/as-long :admin-password identity})))
 
