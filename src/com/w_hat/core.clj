@@ -58,11 +58,11 @@
         headers (:headers req)
         uuid    (cond (:login params)
                       ,, (httpdb-try-authenticate (:login params) (:password params))
-                      
+
                       (and (:x-secondlife-owner-key headers)
                            (is-linden? (:remote-addr req)))
                       ,, (:x-secondlife-owner-key headers)
-                      
+
                       :else
                       ,, nil)
         requestor (when uuid (httpdb/user uuid))]
@@ -82,8 +82,18 @@
 (defroutes httpdb-routes
   (ANY ["/:path" :path #".*"] [path :as r] (handler-httpdb path r)))
 
+
+(defn handler-key2name [uuid]
+  (if-let [name (n2k/key2name uuid)]
+    name
+    {:status 404 :body ""}))
+
+(defroutes key2name-routes
+  (GET ["/:uuid" :uuid sl/RE_UUID] [uuid] (handler-key2name uuid)))
+
 (defroutes routes
   (context "/name2key" [] name2key-routes)
+  (context "/key2name" [] key2name-routes)
   (context "/httpdb" [] httpdb-routes)
   (route/not-found "Not Found"))
 
