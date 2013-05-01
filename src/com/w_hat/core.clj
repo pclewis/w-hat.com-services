@@ -50,7 +50,13 @@
             r    (httpdb/check-password pass (:admin-password user))]
            uuid))
 
-(defn is-linden? [ip] true)
+(defn is-linden?* [ip]
+  (let [rev-addr (java.net.InetAddress/getByName ip)
+        hostname (.getCanonicalHostName rev-addr)
+        fwd-addr (java.net.InetAddress/getByName hostname)]
+    (and (= rev-addr fwd-addr) (.endsWith hostname ".agni.lindenlab.com"))))
+
+(def is-linden? (clojure.core.memoize/memo-ttl is-linden?* (* 60 60 24 7 1000)))
 
 (defn handler-httpdb
   [path req]
