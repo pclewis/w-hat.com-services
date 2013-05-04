@@ -10,5 +10,6 @@
                  [clj-logging-config "1.9.10"]
                  [org.clojure/core.memoize "0.5.3"]
                  [commons-codec/commons-codec "1.8"]]
+  :plugins       [[lein-kibit "0.0.8"]]
   :warn-on-reflection true
   :main com.w-hat.core)

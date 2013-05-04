@@ -26,7 +26,7 @@
   [hkey prefix m]
   (let [ks (if (map? m) (keys m) m)
         fs (if (map? m) (vals m) (repeat identity))]
-    (car/with-parser (fn [v] (apply hash-map (mapcat #(list %1 (if (nil? %3) nil (%2 %3))) ks fs v)))
+    (car/with-parser (fn [v] (apply hash-map (mapcat #(list %1 (when-not (nil? %3) (%2 %3))) ks fs v)))
                      (apply (partial car/hmget hkey) (map #(str prefix %) ks)))))
 
 (defn hsetmap
