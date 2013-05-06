@@ -48,7 +48,7 @@
   (and-let [uuid (if (re-matches sl/RE_UUID login)
                    login
                    (n2k/name2key login))
-            user (httpdb/user uuid)
+            user (httpdb/load-user uuid)
             r    (httpdb/check-password pass (:admin-password user))]
            uuid))
 
@@ -70,12 +70,12 @@
           script-owner-key (:x-secondlife-owner-key headers)
           requestor-uuid   (cond (:login params) (httpdb-try-authenticate (:login params) (:password params))
                                  (and script-owner-key (re-matches sl/RE_UUID script-owner-key) (is-linden? (:remote-addr request))) script-owner-key)
-          requestor        (if requestor-uuid (httpdb/user requestor-uuid))
+          requestor        (if requestor-uuid (httpdb/load-user requestor-uuid))
           ;; translate /__/me/ to /__/<requestor-uuid>/
           path             (:path-info request)
           path             (if (.startsWith path "/__/me/") (.replace path "/__/me/" (str "/__/" requestor-uuid "/")) path)
           owner-uuid       (if-let [m (re/match-exact RE_SHARED_PATH path)] (:uuid m) requestor-uuid)
-          owner            (if (= owner-uuid requestor-uuid) requestor (httpdb/user owner-uuid))
+          owner            (if (= owner-uuid requestor-uuid) requestor (httpdb/load-user owner-uuid))
           path             (if (.startsWith path "/__/") (.replaceFirst path (str "/" owner-uuid "/") "/") path)]
       (if requestor-uuid
         (handler (into request {:requestor requestor

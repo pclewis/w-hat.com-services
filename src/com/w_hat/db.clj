@@ -8,6 +8,7 @@
 
 
 (defn exists? [k] (car/parse-bool (car/exists k)))
+(defn hexists? [k f] (wcar (car/parse-bool (car/hexists k f))))
 
 (defmacro wmap [m]
   `(apply hash-map (car/with-conn pool spec ~@(mapcat #(list (list 'car/return (key %)) (val %)) m))))
@@ -27,7 +28,7 @@
   (let [ks (if (map? m) (keys m) m)
         fs (if (map? m) (vals m) (repeat identity))]
     (car/with-parser (fn [v] (apply hash-map (mapcat #(list %1 (when-not (nil? %3) (%2 %3))) ks fs v)))
-                     (apply (partial car/hmget hkey) (map #(str prefix %) ks)))))
+      (apply car/hmget hkey (map #(str prefix %) ks)))))
 
 (defn hsetmap
   "Set multiple keys with a given prefix in a hash.
@@ -36,8 +37,8 @@
   [hkey prefix m]
   (let [ks (remove (comp nil? val) m)
         ds (filter (comp nil? val) m)]
-    (if-not (empty? ks) (apply (partial car/hmset hkey) (mapcat #(list (str prefix (key %)) (val %)) ks)))
-    (if-not (empty? ds) (apply (partial car/hdel hkey)  (map #(str prefix %) (keys ds))))))
+    (if-not (empty? ks) (apply car/hmset hkey (mapcat #(list (str prefix (key %)) (val %)) ks)))
+    (if-not (empty? ds) (apply car/hdel  hkey (map #(str prefix %) (keys ds))))))
 
 
 
@@ -46,3 +47,12 @@
   (prn (wcar (car/hgetall "testing123"))))
 
 (comment (wcar (hgetmap "httpdb-users" com.w-hat.httpdb/masa {:space-used car/as-long :admin-password identity})))
+
+(defmacro atomically
+  "Like taoensso.carmine/atomically, except will automatically retry failed transactions. Throws exception when limit exceeded."
+  [watch-keys & body]
+  `(loop [t# 0]
+     (if (> t# 50)
+       (throw (Exception. "Giving up on transaction after 50 retries"))
+       (let [result# (db/wcar (car/atomically ~watch-keys (car/echo 1) ~@body))] ;; echo to distinguish empty transcation from failed transaction
+         (if (seq result#) (rest result#) (recur (inc t#)))))))
