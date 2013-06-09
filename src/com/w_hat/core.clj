@@ -32,7 +32,7 @@
   (GET "/" [name terse keys]
        (cond keys (handler-add-keys keys)
              name (handler-name2key name terse)
-             :else {:status 400 :body "You did it wrong."}))
+             :else (redirect "/#name2key")))
   (GET "/:name" [name]
        (handler-name2key name true))
   (route/not-found "Not Found"))
@@ -66,7 +66,7 @@
 (defn wrap-httpdb-auth
   [handler]
   (fn [{:keys [params headers] :as request}]
-    (let [script-owner-key (:x-secondlife-owner-key headers)
+    (let [script-owner-key (headers "x-secondlife-owner-key")
           requestor-uuid   (cond (:login params) (httpdb-try-authenticate (:login params) (:password params))
                                  (and script-owner-key (re-matches sl/RE_UUID script-owner-key)
                                       (is-linden? (:remote-addr request))) script-owner-key)
@@ -82,7 +82,9 @@
                                 :record    (httpdb/load-record requestor owner path (:password params))
                                 :owner     owner
                                 :path-info path}))
-        {:status 403}))))
+        (if (= path "/")
+          (redirect "/#httpdb")
+          {:status 403})))))
 
 (defn wrap-httpdb-start
   [handler]
