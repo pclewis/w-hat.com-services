@@ -104,7 +104,7 @@
                                         #(read t %)
                                         (when d (d rec))))]
                   (if (= k :data)
-                    (merge-fnk (fnk [readable?] (when (not readable?) (throw+ {:type ::denied}))) f)
+                    (merge-fnk (fnk [readable?] (when-not readable? (throw+ {:type ::denied}))) f)
                     f)))))
 
 ;; see also: https://github.com/Prismatic/plumbing/issues/4
@@ -155,7 +155,7 @@
          ; can't detect fields that match existing without extra reads from db. also might not have permission
          ; updates (apply dissoc updates (filter #(= (% updates) (% record)) (keys updates))) ; remove fields that match current record
          updates (apply merge updates (map #(map-apply % record-fields record) events))     ; add calculated fields
-         updates (map-map #(if (= (%1 defaults) %2) nil %2) updates)                        ; nil-ify fields that match defaults
+         updates (map-map #(when-not (= (%1 defaults) %2) %2) updates)                      ; nil-ify fields that match defaults
          updates (map-map #(if %2 (write (:type (%1 record-fields)) %2)) updates)           ; apply types
          new-data (:data updates)
          new-len (if (contains? updates :data)

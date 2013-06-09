@@ -105,17 +105,14 @@
      (catch [:type :com.w-hat.httpdb/denied] _
        {:status 403}))))
 
-(defn- get-any [m & ks]
-  (some #(m %) ks))
-
 (defn wrap-httpdb-short-params
   [handler]
   (fn [{:keys [params] :as request}]
-    (handler (into request {:params (into params {:mode (get-any params :mode :m)
-                                                  :start (get-any params :start :s)
-                                                  :password (get-any params :password :p)
-                                                  :read-password (get-any params :read_password :readpass :rp)
-                                                  :write-password (get-any params :write_password :writepass :wp)})}))))
+    (handler (into request {:params (into params {:mode (some params [:mode :m])
+                                                  :start (some params [:start :s])
+                                                  :password (some params [:password :p])
+                                                  :read-password (some params [:read_password :readpass :rp])
+                                                  :write-password (some params [:write_password :writepass :wp])})}))))
 
 (extend-protocol response/Renderable
   Long    (render [v _] {:status 200, :headers {"Content-Type" "text/plain"}, :body (str v)})
@@ -149,7 +146,7 @@
              "append"  {:data [:append body]}
              "prepend" {:data [:prepend body]}
              {:data body})
-           (when (not (:exists? record))
+           (when-not (:exists? record)
              (select-keys params [:read-password :write-password])))))
        {:status (if (:exists? record) 200 201) :body (str (:space-free owner))})
 
