@@ -140,8 +140,7 @@
          (clojure.string/join "\n" (httpdb/list record))
          (:data record)))
 
-  (PUT "/*"
-       {:keys [record params body owner]}
+  (PUT "/*" {:keys [record params body owner]}
        (let [body (slurp body)]
          (httpdb/update-record
           record
@@ -152,12 +151,16 @@
              {:data body})
            (when (not (:exists? record))
              (select-keys params [:read-password :write-password])))))
-       (:space-free owner))
+       {:status (if (:exists? record) 200 201) :body (str (:space-free owner))})
 
-;  (PUT     "/*" {:keys [params path-info requestor owner body]} (httpdb/set requestor owner path-info (:password params)                                                                            (:mode params) (slurp body) params))
-;  (POST    "/*" {:keys [params path-info requestor owner]}      (httpdb/set-meta requestor owner path-info (:password params) params))
-;  (DELETE  "/*" {:keys [params path-info requestor owner]}      (httpdb/delete   requestor owner path-info (:password params)))
-  )
+  (POST "/*" {:keys [record params]}
+        (httpdb/update-record record (select-keys params [:read-password :write-password]))
+        {:status 200})
+
+  (DELETE "/*" {:keys [record]}
+          (when (:exists? record)
+            (httpdb/delete-record record)
+            {:status 200})))
 
 (defn handler-key2name [uuid]
   (if-let [name (n2k/key2name uuid)]

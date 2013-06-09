@@ -152,7 +152,8 @@
          defaults (map-apply :default record-fields record)
          events  (keep identity [:on-record-update (if-not (:exists? record) :on-record-create)])
          updates (apply dissoc updates (keys (filter-subkeys #{:calculate} record-fields))) ; remove unsettable fields
-         updates (apply dissoc updates (filter #(= (% updates) (% record)) (keys updates))) ; remove fields that match current record
+         ; can't detect fields that match existing without extra reads from db. also might not have permission
+         ; updates (apply dissoc updates (filter #(= (% updates) (% record)) (keys updates))) ; remove fields that match current record
          updates (apply merge updates (map #(map-apply % record-fields record) events))     ; add calculated fields
          updates (map-map #(if (= (%1 defaults) %2) nil %2) updates)                        ; nil-ify fields that match defaults
          updates (map-map #(if %2 (write (:type (%1 record-fields)) %2)) updates)           ; apply types
@@ -184,7 +185,8 @@
   (when-not (:writable? record)
     (throw+ {:type ::denied}))
   (db/put-map data (:dbpath record)
-              (map-vals (fn [m] nil) (filter-subkeys (complement #{:calculate}) record-fields))))
+              (apply dissoc (map-vals (fn [r] nil) record-fields)
+                     (keys (filter-subkeys #{:calculate} record-fields)))))
 
 ;; goofy interface..
 (defn list
@@ -194,6 +196,10 @@
 
 
 (comment
+
+  ((complement #{:calculate}) (:data record-fields))
+  (keys  (filter (complement #{:calculate}) record-fields))
+  (disj #{:a :b} :a)
 
   (filter #(.startsWith % "/hiaa") (db/list data ["masa" "/"]))
 
