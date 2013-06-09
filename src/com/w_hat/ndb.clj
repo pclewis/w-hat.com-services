@@ -3,6 +3,7 @@
   (:refer-clojure :exclude [get])
   (:require (com.w-hat [config :as config] [util :refer :all])
             [taoensso.carmine :as car]
+            [taoensso.carmine.message-queue :as mq]
             [plumbing.core :refer [map-keys]]))
 
 ;; Redis has some cool commands, but to get acceptable memory usage
@@ -21,7 +22,6 @@
 ;; config file in a simple and flexible way. It also provides an easy
 ;; path to exploring alternative backends for any part of the app
 ;; without impacting application code.
-
 (defprotocol DB
   (get ^String [db path])
   (put [db path value])
@@ -40,6 +40,11 @@
          (delete db [:a :c])
          (put db [:a :d] (str (get db [:a :d]) \"hello\"))
      except the put-map version is atomic and does not load d from database."))
+
+;; Hacked together to be able to use carmine's Redis message queue.
+(defprotocol MQ
+  (enqueue [mq qname value])
+  (make-dequeue-worker [mq qname handlerfn]))
 
 (defmacro ^:private with-redis
   [config & body]
@@ -137,7 +142,15 @@
                     redis.call(\"HSET\", KEYS[1], ARGV[i], ARGV[i+1] .. (redis.call(\"HGET\", KEYS[1], ARGV[i]) or \"\"))
                   end"
                  1 key (keep identity args)))))
-    nil))
+    nil)
+
+  MQ
+  (enqueue [mq qname value]
+    (with-redis config
+      (mq/enqueue qname value)))
+
+  (make-dequeue-worker [mq qname handlerfn]
+    (mq/make-dequeue-worker (:pool config) (:spec config) qname :handler-fn handlerfn)))
 
 (def ^:private redis-conn-pool (car/make-conn-pool))
 
@@ -152,6 +165,7 @@
 
 (comment
   (def n2k (make-db (-> (config/config) :databases :name2key)))
+  (enqueue n2k "test" "test")
   (def hd (make-db (-> (config/config) :databases :httpdb-data)))
 
   (def hdc (-> (config/config) :databases :httpdb-data))

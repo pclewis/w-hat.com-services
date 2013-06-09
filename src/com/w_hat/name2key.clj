@@ -1,10 +1,11 @@
 (ns com.w-hat.name2key
-  (:require (com.w-hat [db :as db] [re :as re] [sl :as sl])
+  (:require (com.w-hat [ndb :as db] [re :as re] [sl :as sl])
             [clojure.tools.logging          :as log]
             [clojure.core.memoize           :refer [memo-ttl]]
-            [org.httpkit.client             :as http]
-            [taoensso.carmine               :as car]
-            [taoensso.carmine.message-queue :as mq]))
+            [org.httpkit.client             :as http]))
+
+(def n2k (db/handle :name2key))
+(def k2n (db/handle :key2name))
 
 (def ^:private RE_SL_RESIDENT_RESULT (re-pattern (str "<title>" sl/RE_TITLE "</title>")))
 (defn sl-search-key
@@ -60,33 +61,33 @@
 
 (defn- save
   [name key]
-    (car/hset (name-hash name) name key)
-    (car/hset (key-hash  key ) key name))
+  (db/put n2k [name] key)
+  (db/put k2n [key] name))
 
 (defn name2key-redis
   [name]
   (let [cn (sl/canonical-name name)]
-    (db/wcar (car/hget (name-hash cn) cn))))
+    (db/get n2k [cn])))
 
 (defn name2key-sls*
   [name]
   (let [results (sl-search-name name)
         cname (sl/canonical-name name)]
     (when results
-      (db/wcar (map #(save (key %) (val %)) results)) ; save all found keys
+      (doseq [[name key] results] (save name key)) ; save found keys
       (results cname))))
 
 (def name2key-sls (memo-ttl name2key-sls* 60000))
 
 (defn key2name-redis
   [key]
-  (db/wcar (car/hget (key-hash key) key)))
+  (db/get k2n [key]))
 
 (defn key2name-remote*
   [key]
   (let [name (or (sl-search-key key) (in-world-key2name key))]
     (when name
-      (db/wcar (save name key))
+      (save name key)
       name)))
 
 (def key2name-remote (memo-ttl key2name-remote* 60000))
@@ -101,12 +102,15 @@
 
 (defn add-keys
   [ks]
-  (->> ks
-       (filter #(zero? (db/wcar (car/hexists (key-hash %) %))))
-       (map #(db/wcar (mq/enqueue "key-resolve" %)))
+  (->> (remove #(db/exists? k2n [%]) ks)
+       (map #(db/enqueue n2k "key-resolve" %))
        doall
        count))
 
 (defn make-key-resolve-worker []
-  (mq/make-dequeue-worker db/pool db/spec "key-resolve"
-                          :handler-fn key2name))
+  (db/make-dequeue-worker n2k "key-resolve" key2name))
+
+(comment
+  (db/enqueue n2k "asdf" "asdf")
+  (add-keys ["0050d800-f30d-441e-983f-d564c4f99b30"])
+  (def q (db/make-dequeue-worker n2k "key-resolve" key2name)))
