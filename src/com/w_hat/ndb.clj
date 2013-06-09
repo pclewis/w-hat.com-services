@@ -113,10 +113,15 @@
         (.length (get db path)))))
 
   (list [db path]
-    (with-redis* config path
-      (if subkey
-        (car/with-parser (fn [r] (filter #(.startsWith % subkey) r)) (car/hkeys key))
-        (car/keys (str (.replaceAll key "([*?\\[\\]\\\\])" "\\\\$1") "*")))))
+    (if (empty? path)
+      (let [all-keys (with-redis config (car/keys "*"))
+            all-map (map (fn [k] (map-keys #((:topath config) k %) (apply hash-map (with-redis config (car/hgetall k)))))
+                         all-keys)]
+        (apply merge all-map))
+      (with-redis* config path
+        (if subkey
+          (car/with-parser (fn [r] (filter #(.startsWith % subkey) r)) (car/hkeys key))
+          (car/keys (str (.replaceAll key "([*?\\[\\]\\\\])" "\\\\$1") "*"))))))
 
   (put-map [db path update-map]
     (with-redis config
@@ -165,11 +170,20 @@
 
 (comment
   (def n2k (make-db (-> (config/config) :databases :name2key)))
+  (def config (.config k2n))
+
   (enqueue n2k "test" "test")
   (def hd (make-db (-> (config/config) :databases :httpdb-data)))
 
   (def hdc (-> (config/config) :databases :httpdb-data))
+  (def k2nc (-> (config/config) :databases :key2name))
+  (def k2n (handle :key2name))
+  k2nc
   hdc
+  (set! *warn-on-reflection* false)
+  (use 'clojure.repl)
+  (->> k2n .getClass .getDeclaredFields (map prn))
+  (.config k2n)
   (doc car/make-conn-spec)
   (redis-group-by-key hdc [:masa] {:a 1 :b 2})
   (put-map hd [:masa] {:a 1 :b [:append "wat"] :c nil})
@@ -189,6 +203,10 @@
     (car/atomically ["hi"]
                     (car/get "hi")
                     (with-redis hdc (car/set "hi" "bye")) ))
+
+  (map #(with-redis (.config k2n) (car/hgetall %))
+       (with-redis (.config k2n)
+         (car/keys "*")))
 
   (get hd ["hi" "there"])
   (put hd ["hi" "there"] "yo wasup")

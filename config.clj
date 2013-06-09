@@ -7,7 +7,8 @@
                         :host "localhost"
                         :db 1
                         :key #(subs (first %) 0 4)
-                        :subkey #(first %)}
+                        :subkey #(first %)
+                        :topath (fn [key subkey] subkey)}
              :httpdb-users {:type :redis
                             :host "localhost"
                             :db 2

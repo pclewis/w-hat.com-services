@@ -22,8 +22,12 @@
       (.replace " " ".")
       (.replace ".resident" "")))
 
+(defn resident-name
+  "Convert canonical name to resident name. (ex: governor.linden -> Governor Linden)"
+  [^String name]
+  (clojure.string/join  " " (take 2 (concat (map clojure.string/capitalize (clojure.string/split name #"\.")) ["Resident"]))))
+
 (defn valid-name?
   "Return true if name is a valid (not necessarily canonical) resident/user name."
   [name]
   (.matches (re-matcher RE_VALID_NAME name)))
-

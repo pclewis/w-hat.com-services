@@ -110,7 +110,14 @@
 (defn make-key-resolve-worker []
   (db/make-dequeue-worker n2k "key-resolve" key2name))
 
+(defn csv
+  []
+  (clojure.string/join "\n" (map (fn [[k v]] (str k "," (sl/resident-name v)))
+                                 (db/list k2n []))))
+
 (comment
+  (csv)
   (db/enqueue n2k "asdf" "asdf")
   (add-keys ["0050d800-f30d-441e-983f-d564c4f99b30"])
-  (def q (db/make-dequeue-worker n2k "key-resolve" key2name)))
+  (def q (db/make-dequeue-worker n2k "key-resolve" key2name))
+  (taoensso.carmine.message-queue/stop q))
