@@ -43,7 +43,7 @@
 
 (defmacro ^:private with-redis
   [config & body]
-  `(car/with-conn ~(:pool config) ~(:spec config) ~@body))
+  `(car/with-conn (:pool ~config) (:spec ~config) ~@body))
 
 (defn- call-me-maybe
   [f & args]
@@ -144,7 +144,7 @@
 (defmulti make-db :type)
 (defmethod make-db :redis [config]
   (Redis. (into config {:pool redis-conn-pool
-                        :spec (apply car/make-conn-spec (select-keys config #{:host :port :timeout :db}))})))
+                        :spec (apply car/make-conn-spec (-> (select-keys config #{:host :port :timeout :db}) seq flatten))})))
 
 (defn handle
   [db]
@@ -155,9 +155,13 @@
   (def hd (make-db (-> (config/config) :databases :httpdb-data)))
 
   (def hdc (-> (config/config) :databases :httpdb-data))
+  hdc
+  (doc car/make-conn-spec)
   (redis-group-by-key hdc [:masa] {:a 1 :b 2})
   (put-map hd [:masa] {:a 1 :b [:append "wat"] :c nil})
   (call-me-maybe (:key hdc) [:masa])
+
+  (apply car/make-conn-spec (-> (select-keys hdc #{:host :port :timeout :db}) seq flatten))
 
   (redis-group-by-key hdc ["test"] {:a 1})
 
