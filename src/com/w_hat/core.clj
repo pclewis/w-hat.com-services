@@ -9,8 +9,9 @@
             [ring.util.response       :refer [redirect]]
             [compojure.core           :refer [defroutes context GET PUT POST DELETE ANY]]
             [clj-logging-config.log4j :refer [set-logger!]]
+            [slingshot.slingshot      :refer [try+]]
             (ring.middleware [params :refer [wrap-params]] [keyword-params :refer [wrap-keyword-params]])
-            (com.w-hat [sl :as sl] [name2key :as n2k] [httpdb :as httpdb] [re :as re]))
+            (com.w-hat [sl :as sl] [name2key :as n2k] [httpdb :as httpdb] [re :as re] [util :refer :all]))
   (:gen-class))
 
 (set-logger!)
@@ -49,7 +50,7 @@
                    login
                    (n2k/name2key login))
             user (httpdb/load-user uuid)
-            r    (httpdb/check-password pass (:admin-password user))]
+            r    (check-password pass (:admin-password user))]
            uuid))
 
 (defn is-linden?* [ip]
@@ -64,12 +65,11 @@
 
 (defn wrap-httpdb-auth
   [handler]
-  (fn [request]
-    (let [params           (:params request)
-          headers          (:headers request)
-          script-owner-key (:x-secondlife-owner-key headers)
+  (fn [{:keys [params headers] :as request}]
+    (let [script-owner-key (:x-secondlife-owner-key headers)
           requestor-uuid   (cond (:login params) (httpdb-try-authenticate (:login params) (:password params))
-                                 (and script-owner-key (re-matches sl/RE_UUID script-owner-key) (is-linden? (:remote-addr request))) script-owner-key)
+                                 (and script-owner-key (re-matches sl/RE_UUID script-owner-key)
+                                      (is-linden? (:remote-addr request))) script-owner-key)
           requestor        (if requestor-uuid (httpdb/load-user requestor-uuid))
           ;; translate /__/me/ to /__/<requestor-uuid>/
           path             (:path-info request)
@@ -79,9 +79,43 @@
           path             (if (.startsWith path "/__/") (.replaceFirst path (str "/" owner-uuid "/") "/") path)]
       (if requestor-uuid
         (handler (into request {:requestor requestor
+                                :record    (httpdb/load-record requestor owner path (:password params))
                                 :owner     owner
                                 :path-info path}))
         {:status 403}))))
+
+(defn wrap-httpdb-start
+  [handler]
+  (fn [{:keys [params headers] :as request}]
+    (let [start (Integer/parseInt (or (:s params) (:start params) "0"))
+          response (handler request)]
+      (if (= 200 (:status response))
+        (into response {:body (if (> start (count (:body response)))
+                                ""
+                                (subs (:body response) start))})
+        response))))
+
+(defn wrap-httpdb-exceptions
+  [handler]
+  (fn [request]
+    (try+
+     (handler request)
+     (catch [:type :com.w-hat.httpdb/quota-exceeded] _
+       {:status 413})
+     (catch [:type :com.w-hat.httpdb/denied] _
+       {:status 403}))))
+
+(defn- get-any [m & ks]
+  (some #(m %) ks))
+
+(defn wrap-httpdb-short-params
+  [handler]
+  (fn [{:keys [params] :as request}]
+    (handler (into request {:params (into params {:mode (get-any params :mode :m)
+                                                  :start (get-any params :start :s)
+                                                  :password (get-any params :password :p)
+                                                  :read-password (get-any params :read_password :readpass :rp)
+                                                  :write-password (get-any params :write_password :writepass :wp)})}))))
 
 (extend-protocol response/Renderable
   Long    (render [v _] {:status 200, :headers {"Content-Type" "text/plain"}, :body (str v)})
@@ -90,20 +124,40 @@
 (defroutes httpdb-routes
   (GET  "/__sys/space/free"      {:keys [requestor]} (:space-free      requestor))
   (GET  "/__sys/space/used"      {:keys [requestor]} (:space-used      requestor))
-  (GET  "/__sys/space/available" {:keys [requestor]} (:space-available requestor))
+  (GET  "/__sys/space/available" {:keys [requestor]} (:space-allocated requestor))
   (GET  "/__sys/admin_password"  [] 0) ;; TODO
   (POST "/__sys/defaults"        {:keys [params requestor]} ;; legacy
-        (httpdb/set-user-meta requestor (:password params) {:default-read-password (:read-password params)                                                                                                    :default-write-password (:write-password params)}))
+        (httpdb/update-user requestor {:default-read-password (:read-password params)
+                                       :default-write-password (:write-password params)}))
   (PUT  "/__sys/defaults"        {:keys [params requestor]} ;; legacy
-        (httpdb/set-user-meta requestor (:password params) {:default-read-password (:read-password params)                                                                                                    :default-write-password (:write-password params)}))
-  (POST "/__sys/options"         {:keys [params requestor]}     (httpdb/set-user-meta requestor (:password params) params))
+        (httpdb/update-user requestor  {:default-read-password (:read-password params)
+                                        :default-write-password (:write-password params)}))
+;  (POST "/__sys/options"         {:keys [params requestor]}     (httpdb/set-user-meta requestor (:password params) params))
 
-  (GET     "/*" {:keys [params path-info requestor owner]}      (httpdb/get requestor owner path-info (:password params)))
-  (PUT     "/*" {:keys [params path-info requestor owner body]} (httpdb/set requestor owner path-info (:password params)
-                                                                            (:mode params) (slurp body) params))
-  (POST    "/*" {:keys [params path-info requestor owner]}      (httpdb/set-meta requestor owner path-info (:password params) params))
-  (DELETE  "/*" {:keys [params path-info requestor owner]}      (httpdb/delete   requestor owner path-info (:password params))))
+  (GET "/*"
+       {:keys [record params]}
+       (if (= "list" (:mode params))
+         (clojure.string/join "\n" (httpdb/list record))
+         (:data record)))
 
+  (PUT "/*"
+       {:keys [record params body owner]}
+       (let [body (slurp body)]
+         (httpdb/update-record record
+          (fn [record]
+            (merge
+             (case (:mode params)
+               "append"  {:data {:append body}}
+               "prepend" {:data {:prepend body}}
+               {:data body})
+             (when (not (:exists? record))
+               (select-keys params [:read-password :write-password]))))))
+       (:space-free owner))
+
+;  (PUT     "/*" {:keys [params path-info requestor owner body]} (httpdb/set requestor owner path-info (:password params)                                                                            (:mode params) (slurp body) params))
+;  (POST    "/*" {:keys [params path-info requestor owner]}      (httpdb/set-meta requestor owner path-info (:password params) params))
+;  (DELETE  "/*" {:keys [params path-info requestor owner]}      (httpdb/delete   requestor owner path-info (:password params)))
+  )
 
 (defn handler-key2name [uuid]
   (if-let [name (n2k/key2name uuid)]
@@ -116,7 +170,11 @@
 (defroutes routes
   (context "/name2key" [] name2key-routes)
   (context "/key2name" [] key2name-routes)
-  (context "/httpdb"   [] (wrap-httpdb-auth httpdb-routes))
+  (context "/httpdb"   [] (-> httpdb-routes
+                              wrap-httpdb-auth
+                              wrap-httpdb-start
+                              wrap-httpdb-short-params
+                              wrap-httpdb-exceptions))
   (GET "/hi" [:as r] (str r))
   (route/not-found "Not Found"))
 
@@ -132,7 +190,7 @@
              wrap-params))
 
 (defn -main [& args]
-  (n2k/make-key-resolve-worker)
+;  (n2k/make-key-resolve-worker)
   (httpkit/run-server app {:port 8080}))
 
 (comment

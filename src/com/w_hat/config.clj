@@ -1,8 +1,7 @@
-(ns com.w-hat.config
-  (:require clojure.edn))
+(ns com.w-hat.config)
 
 (defn- exists? [^String f] (-> f java.io.File. .exists))
-(defn- read-config [f] (if (exists? f) (clojure.edn/read-string (slurp f))))
+(defn- read-config [f] (if (exists? f) (-> f slurp read-string eval)))
 
 (def ^:private current-config (atom nil))
 
@@ -18,4 +17,3 @@
 (defn config
   ([] (if (nil? @current-config) (reload-config)) @current-config)
   ([k] (k (config))))
-
