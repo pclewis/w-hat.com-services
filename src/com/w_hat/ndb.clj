@@ -1,7 +1,7 @@
 (ns com.w-hat.ndb
   "Configurable database and database mapping."
   (:refer-clojure :exclude [get])
-  (:require (com.w-hat [config :as config])
+  (:require (com.w-hat [config :as config] [util :refer :all])
             [taoensso.carmine :as car]
             [plumbing.core :refer [map-keys]]))
 
@@ -29,24 +29,17 @@
   (exists? [db path])
   (size [db path])
   (list [db path])
-  (put-map [db path map]
+  (put-map [db path update-map]
      "Update multiple keys based on entries in map. Each key will be appended to path. Entries
-     with a nil value will be deleted.
-     Ex: (put-map db [:a] {:b 1 :c nil}) is equivalent to:
-         (put db [:a :b] 1) (delete db [:a :c])")
-  (update-map [db path f]
-    "Update a stored map based on a map of updates as returned by calling f, ensuring that the
-     update is atomic and the value of the map is not changed while f is executing. Note f may
-     be called multiple times."))
-;; (atomically [f])
-
-
-;; FIXME: crappy but exposes the api I want
-(def get- get)
-(defn get
-  ([db path] (get- db path))
-  ([db path not-found] (if-let [result (get- db path)] result not-found)))
-
+     with a nil value will be deleted. Entries map also be a vector to peform operations on the
+     existing value without fetching it.
+     Ex:
+         (put-map db [:a] {:b 1 :c nil :d [:append \"hello\"]})
+     is equivalent to:
+         (put db [:a :b] 1)
+         (delete db [:a :c])
+         (put db [:a :d] (str (get db [:a :d]) \"hello\"))
+     except the put-map version is atomic and does not load d from database."))
 
 (defmacro ^:private with-redis
   [config & body]
@@ -79,18 +72,6 @@
   [config prefix map]
   (group-by #(call-me-maybe (:key config) (conj prefix (first %)))
             (map-keys #(call-me-maybe (:subkey config) (conj prefix %)) map)))
-
-(defn- redis-put-map
-  [config path fgetmap watch]
-  (with-redis config
-    (car/atomically
-     (if (nil? watch) [] [(call-me-maybe (:key config) watch)])
-     (car/echo "hi") ; echo to distinguish failure from noop
-     (let [gs (group-by (comp nil? val) (fgetmap))]
-       (doseq [[k vs] (redis-group-by-key config path (gs false))]
-         (apply car/hmset k (flatten vs)))
-       (doseq [[k vs] (redis-group-by-key config path (gs true))]
-         (apply car/hdel k (keys vs)))))))
 
 (deftype Redis [config]
   DB
@@ -132,14 +113,30 @@
         (car/with-parser (fn [r] (filter #(.startsWith % subkey) r)) (car/hkeys key))
         (car/keys (str (.replaceAll key "([*?\\[\\]\\\\])" "\\\\$1") "*")))))
 
-  (put-map [db path map]
-    (redis-put-map config path #(identity map) nil)
-    nil)
-
-  (update-map [db path f]
-    (loop []
-      (when-not (seq (redis-put-map config path f path))
-        (recur)))
+  (put-map [db path update-map]
+    (with-redis config
+      (doseq [[key submap] (redis-group-by-key config path update-map)]
+        (let [updates (map-vals #(cond (nil? %)    [:del]
+                                       (vector? %) %
+                                       :else       [:set %]) (into {} submap))
+              update-groups (group-by (comp first val) updates) ; {:set [[:a [:set 1]]}
+              args (flatten (map (comp (juxt count #(map-vals second %))
+                                       #(or (% update-groups) []))
+                                 [:set :del :append :prepend]))]
+          (apply car/eval*
+                 "local start = 1; local e = start+tonumber(ARGV[start])*2
+                  for i = start+1,e,2 do  redis.call(\"HSET\", KEYS[1], ARGV[i], ARGV[i+1])  end
+                  start = e+1; e = start+tonumber(ARGV[start])
+                  for i = start+1,e do  redis.call(\"HDEL\", KEYS[1], ARGV[i])  end
+                  start = e+1; e = start+tonumber(ARGV[start])*2
+                  for i = start+1,e,2 do
+                    redis.call(\"HSET\", KEYS[1], ARGV[i], (redis.call(\"HGET\", KEYS[1], ARGV[i]) or \"\") .. ARGV[i+1])
+                  end
+                  start = e+1; e = start+tonumber(ARGV[start])*2
+                  for i = start+1,e,2 do
+                    redis.call(\"HSET\", KEYS[1], ARGV[i], ARGV[i+1] .. (redis.call(\"HGET\", KEYS[1], ARGV[i]) or \"\"))
+                  end"
+                 1 key (keep identity args)))))
     nil))
 
 (def ^:private redis-conn-pool (car/make-conn-pool))
@@ -159,8 +156,12 @@
 
   (def hdc (-> (config/config) :databases :httpdb-data))
   (redis-group-by-key hdc [:masa] {:a 1 :b 2})
-  (redis-put-map hdc [:masa] #(identity {:a 1}) nil)
+  (put-map hd [:masa] {:a 1 :b [:append "wat"] :c nil})
   (call-me-maybe (:key hdc) [:masa])
+
+  (redis-group-by-key hdc ["test"] {:a 1})
+
+  (map-keys #(identity [:set %]) [ [:a 1]])
 
   ((-> (config/config) :databases :httpdb-data :subkey) [:a])
 

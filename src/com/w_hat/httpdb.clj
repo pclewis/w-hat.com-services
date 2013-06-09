@@ -144,35 +144,33 @@
   )
 
 (defn update-record
-  [record update-fn]
-  (db/update-map
-   data (:dbpath record)
-   (fn []
-     (let [record  (load-record record) ; reload record from db
-           old-len (db/size data (conj (:dbpath record) :data))
-           defaults (map-apply :default record-fields record)
-           events  (keep identity [:on-record-update (if-not (:exists? record) :on-record-create)])
-           updates (update-fn record)
-           updates (apply dissoc updates (keys (filter-subkeys #{:calculate} record-fields))) ; remove unsettable fields
-           updates (apply dissoc updates (filter #(= (% updates) (% record)) (keys updates))) ; remove fields that match current record
-           updates (apply merge updates (map #(map-apply % record-fields record) events))     ; add calculated fields
-           updates (map-map #(if (= (%1 defaults) %2) nil %2) updates)                        ; nil-ify fields that match defaults
-           updates (map-map #(if %2 (write (:type (%1 record-fields)) %2)) updates)           ; apply types
-           new-data (:data updates)
-           new-len (if (contains? updates :data)
-                     (if (nil? new-data)
-                       0
-                       (if (map? new-data)
-                         (+ old-len (-> new-data vals first count))
-                         (count new-data)))
-                     old-len)]
-       (when (and (> new-len old-len)
-                  (> 0 (- (:space-free (:owner record))
-                          (- new-len old-len))))
-         (throw+ {:type ::quota-exceeded}))
-       (when-not (:writable? record)
-         (throw+ {:type ::denied}))
-       updates))))
+  [record updates]
+  (db/put-map
+   data
+   (:dbpath record)
+   (let [old-len (db/size data (conj (:dbpath record) :data))
+         defaults (map-apply :default record-fields record)
+         events  (keep identity [:on-record-update (if-not (:exists? record) :on-record-create)])
+         updates (apply dissoc updates (keys (filter-subkeys #{:calculate} record-fields))) ; remove unsettable fields
+         updates (apply dissoc updates (filter #(= (% updates) (% record)) (keys updates))) ; remove fields that match current record
+         updates (apply merge updates (map #(map-apply % record-fields record) events))     ; add calculated fields
+         updates (map-map #(if (= (%1 defaults) %2) nil %2) updates)                        ; nil-ify fields that match defaults
+         updates (map-map #(if %2 (write (:type (%1 record-fields)) %2)) updates)           ; apply types
+         new-data (:data updates)
+         new-len (if (contains? updates :data)
+                   (if (nil? new-data)
+                     0
+                     (if (vector? new-data)
+                       (+ old-len (-> new-data second count))
+                       (count new-data)))
+                   old-len)]
+     (when (and (> new-len old-len)
+                (> 0 (- (:space-free (:owner record))
+                        (- new-len old-len))))
+       (throw+ {:type ::quota-exceeded}))
+     (when-not (:writable? record)
+       (throw+ {:type ::denied}))
+     updates)))
 
 (defn update-user
   [user updates]

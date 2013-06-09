@@ -143,15 +143,15 @@
   (PUT "/*"
        {:keys [record params body owner]}
        (let [body (slurp body)]
-         (httpdb/update-record record
-          (fn [record]
-            (merge
-             (case (:mode params)
-               "append"  {:data {:append body}}
-               "prepend" {:data {:prepend body}}
-               {:data body})
-             (when (not (:exists? record))
-               (select-keys params [:read-password :write-password]))))))
+         (httpdb/update-record
+          record
+          (merge
+           (case (:mode params)
+             "append"  {:data [:append body]}
+             "prepend" {:data [:prepend body]}
+             {:data body})
+           (when (not (:exists? record))
+             (select-keys params [:read-password :write-password])))))
        (:space-free owner))
 
 ;  (PUT     "/*" {:keys [params path-info requestor owner body]} (httpdb/set requestor owner path-info (:password params)                                                                            (:mode params) (slurp body) params))
