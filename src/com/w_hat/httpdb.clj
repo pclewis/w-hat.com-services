@@ -4,7 +4,8 @@
             [taoensso.carmine :as car]
             [plumbing.core :refer [fnk]]
             [plumbing.graph :as graph]
-            [slingshot.slingshot :refer [throw+]]))
+            [slingshot.slingshot :refer [throw+]]
+            [clojure-csv.core :as csv]))
 
 (def users (db/handle :httpdb-users))
 (def data  (db/handle :httpdb-data))
@@ -193,9 +194,51 @@
   [record]
   (distinct (map #(.replaceFirst % ":[^:]+$" "") (db/list data (:dbpath record)))))
 
+(defn parse-mysql-null [^String s] (when-not (= s "\\N") s))
 
+(defn import-csv
+  [filename]
+  (let [csv (csv/parse-csv (clojure.java.io/reader filename))
+        parse-mysql-date (fn [^String s] (iso8601-parse (str (.replace s " " "T") "Z")))]
+    (doseq [row csv]
+      (try
+        (db/put-map data [(nth row 0) (.replaceFirst (nth row 1) (str "/" (nth row 0) "/") "/")]
+                    {:created-at (write :date (parse-mysql-date (nth row 2)))
+                     :created-by (nth row 3)
+                     :updated-at (write :date (parse-mysql-date (nth row 4)))
+                     :updated-by (nth row 5)
+                     :read-password (parse-mysql-null (nth row 6))
+                     :write-password (parse-mysql-null (nth row 7))
+                     :data (nth row 8)})
+        (catch Exception e
+          (prn "Exception " e " on row " row)
+          (throw e))))))
+
+(defn import-user-csv
+  [filename]
+  (let [csv (csv/parse-csv (slurp filename))]
+    (doseq [row csv]
+      (let [row (map parse-mysql-null row)]
+        (when-not (every? nil? (rest row))
+          (db/put-map users [(nth row 0)]
+                      {:admin-password (nth row 1)
+                       :default-read-password (nth row 2)
+                       :default-write-password (nth row 3)}))))))
 
 (comment
+
+  (csv/parse-csv "hello,\"abu\\\",asdf")
+  (map #(nth % 8) (csv/parse-csv (slurp "blah.csv")))
+
+  (import-csv "httpdb-records-full-fixed.csv")
+  (import-user-csv "httpdb-users-full.csv")
+  (.replaceAll "hi" "a" "b")
+
+  (every? nil? [nil nil nil])
+
+  (count (take 300 (csv/parse-csv (slurp "httpdb-records-full.csv"))))
+
+  data
 
   ((complement #{:calculate}) (:data record-fields))
   (keys  (filter (complement #{:calculate}) record-fields))

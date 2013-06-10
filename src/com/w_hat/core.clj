@@ -10,7 +10,7 @@
             [compojure.core           :refer [defroutes context GET PUT POST DELETE ANY]]
             [clj-logging-config.log4j :refer [set-logger!]]
             [slingshot.slingshot      :refer [try+]]
-            (ring.middleware [params :refer [wrap-params]] [keyword-params :refer [wrap-keyword-params]])
+            (ring.middleware [params :refer [wrap-params]] [keyword-params :refer [wrap-keyword-params]] [multipart-params :refer [wrap-multipart-params]])
             (com.w-hat [sl :as sl] [name2key :as n2k] [httpdb :as httpdb] [re :as re] [util :refer :all]))
   (:gen-class))
 
@@ -33,6 +33,10 @@
        (cond keys (handler-add-keys keys)
              name (handler-name2key name terse)
              :else (redirect "/#name2key")))
+  (POST "/" [name terse keys]
+       (cond keys (handler-add-keys keys)
+             name (handler-name2key name terse)
+             :else {:status 400}))
   (GET "/:name" [name]
        (handler-name2key name true))
   (route/not-found "Not Found"))
@@ -170,7 +174,8 @@
   (GET ["/:uuid" :uuid sl/RE_UUID] [uuid] (handler-key2name uuid)))
 
 (defroutes routes
-  (context "/name2key" [] name2key-routes)
+  (context "/name2key" [] (-> name2key-routes
+                              wrap-multipart-params))
   (context "/key2name" [] key2name-routes)
   (context "/httpdb"   [] (-> httpdb-routes
                               wrap-httpdb-auth
@@ -192,8 +197,10 @@
              wrap-params))
 
 (defn -main [& args]
-;  (n2k/make-key-resolve-worker)
-  (httpkit/run-server app {:port 8080}))
+  (n2k/make-key-resolve-worker)
+  (httpkit/run-server app {:port (Integer/parseInt (System/getProperty "port" "8080"))}))
 
 (comment
-  (n2k/name2key "masakazu kojima"))
+  (n2k/name2key "masakazu kojima")
+  (require 'com.w-hat.ndb )
+  (com.w-hat.ndb/list (com.w-hat.ndb/handle :key2name) ["0000"]))

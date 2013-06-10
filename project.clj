@@ -11,7 +11,9 @@
                  [org.clojure/core.memoize "0.5.3"]
                  [commons-codec/commons-codec "1.8"]
                  [prismatic/plumbing "0.1.0"]
-                 [slingshot "0.10.3"]]
+                 [slingshot "0.10.3"]
+                 [org.clojure/data.csv "0.1.2"]
+                 [clojure-csv/clojure-csv "2.0.0-alpha1"]]
   :plugins       [[lein-kibit "0.0.8"]
                   [lein-marginalia "0.7.1"]]
   :warn-on-reflection true
