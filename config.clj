@@ -18,4 +18,5 @@
                            :host "localhost"
                            :db 2
                            :key #(apply taoensso.carmine/kname [(first %) :data])
-                           :subkey #(apply taoensso.carmine/kname (rest %))}}}
+                           :subkey #(apply taoensso.carmine/kname (rest %))}}
+ :name2key {:in-world-url #(let [{:keys [status headers body error] :as resp} @(http/get "http://w-hat.com/uuid-url.txt")] body)}}

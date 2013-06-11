@@ -1,5 +1,5 @@
 (ns com.w-hat.name2key
-  (:require (com.w-hat [ndb :as db] [re :as re] [sl :as sl])
+  (:require (com.w-hat [ndb :as db] [re :as re] [sl :as sl] [config :as config])
             [clojure.tools.logging          :as log]
             [clojure.core.memoize           :refer [memo-ttl]]
             [org.httpkit.client             :as http]))
@@ -40,12 +40,10 @@
   []
   (log/info "Getting new in-world key2name url")
   (let [oldval @in-world-key2name-url
-        {:keys [status headers body error] :as resp} @(http/get "http://w-hat.com/uuid-url.txt")]
-    (if error
-      (log/error "Error fetching new key2name url:" error)
-      (let [newval (clojure.string/trim body)]
-        (if (not= oldval newval)
-          (compare-and-set! in-world-key2name-url oldval newval))))))
+        getter (-> (config/config) :name2key :in-world-url)
+        newval (clojure.string/trim (if (ifn? getter) (getter) getter))]
+    (if (not= oldval newval)
+      (compare-and-set! in-world-key2name-url oldval newval))))
 
 (defn in-world-key2name
   [key]
