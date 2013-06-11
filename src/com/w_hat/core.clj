@@ -33,9 +33,10 @@
        (cond keys (handler-add-keys keys)
              name (handler-name2key name terse)
              :else (redirect "/#name2key")))
-  (POST "/" [name terse keys]
+  (POST "/" {{:keys [name terse keys]} :params :keys [body]}
        (cond keys (handler-add-keys keys)
              name (handler-name2key name terse)
+             body (handler-add-keys (slurp body))
              :else {:status 400}))
   (GET "/:name" [name]
        (handler-name2key name true))
@@ -65,7 +66,7 @@
 
 (def is-linden? (clojure.core.memoize/memo-ttl is-linden?* (* 60 60 24 7 1000)))
 
-(def ^:private RE_SHARED_PATH (re-pattern (str "__/" , "(?<uuid>" sl/RE_UUID ")" , "/" , "(?<path>.*)" )))
+(def ^:private RE_SHARED_PATH (re-pattern (str "/__/" , "(?<uuid>" sl/RE_UUID ")" , "/" , "(?<path>.*)" )))
 
 (defn wrap-httpdb-auth
   [handler]
@@ -83,10 +84,10 @@
           path             (if (.startsWith path "/__/") (.replaceFirst path (str "/" owner-uuid "/") "/") path)]
       (if requestor-uuid
         (handler (into request {:requestor requestor
-                                :record    (httpdb/load-record requestor owner path (:password params))
+                                :record    (httpdb/load-record requestor owner (subs path 1) (:password params))
                                 :owner     owner
                                 :path-info path}))
-        (if (= path "/")
+        (if (= "/" path)
           (redirect "/#httpdb")
           {:status 403})))))
 
