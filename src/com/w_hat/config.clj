@@ -1,7 +1,7 @@
 (ns com.w-hat.config)
 
 (defn- exists? [^String f] (-> f java.io.File. .exists))
-(defn- read-config [f] (if (exists? f) (-> f slurp read-string eval)))
+(defn- read-config [f] (if (exists? f) (-> f slurp load-string)))
 
 (def ^:private current-config (atom nil))
 
