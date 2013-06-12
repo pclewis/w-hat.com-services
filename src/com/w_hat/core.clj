@@ -17,12 +17,12 @@
 (set-logger!)
 
 (defn handler-name2key
-  [name terse]
+  [name terse? use-404?]
   (let [k (if (sl/valid-name? name) (n2k/name2key name) :invalid)]
     (case k
       :invalid {:status 400 :body "Invalid name"}
-      nil      {:status 404 :body (if terse sl/NULL_KEY "None found")}
-      (if terse k (str name " " k)))))
+      nil      {:status (if use-404? 404 200) :body (if terse? sl/NULL_KEY "None found")}
+      (if terse? k (str name " " k)))))
 
 (defn handler-add-keys
   [body]
@@ -31,15 +31,15 @@
 (defroutes name2key-routes
   (GET "/" [name terse keys]
        (cond keys (handler-add-keys keys)
-             name (handler-name2key name terse)
+             name (handler-name2key name terse false)
              :else (redirect "/#name2key")))
   (POST "/" {{:keys [name terse keys]} :params :keys [body]}
        (cond keys (handler-add-keys keys)
-             name (handler-name2key name terse)
+             name (handler-name2key name terse false)
              body (handler-add-keys (slurp body))
              :else {:status 400}))
   (GET "/:name" [name]
-       (handler-name2key name true))
+       (handler-name2key name true true))
   (route/not-found "Not Found"))
 
 (defmacro and-let [bindings expr]
