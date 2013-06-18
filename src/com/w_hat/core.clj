@@ -129,6 +129,7 @@
                                                   :write-password (some params [:write_password :writepass :wp])})}))))
 
 (extend-protocol response/Renderable
+  String  (render [v _] {:status 200, :headers {"Content-Type" "text/plain"}, :body v})
   Long    (render [v _] {:status 200, :headers {"Content-Type" "text/plain"}, :body (str v)})
   Integer (render [v _] {:status 200, :headers {"Content-Type" "text/plain"}, :body (str v)}))
 
