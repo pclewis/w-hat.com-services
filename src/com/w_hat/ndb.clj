@@ -114,10 +114,9 @@
 
   (list [db path]
     (if (empty? path)
-      (let [all-keys (with-redis config (car/keys "*"))
-            all-map (map (fn [k] (map-keys #((:topath config) k %) (apply hash-map (with-redis config (car/hgetall k)))))
-                         all-keys)]
-        (apply merge all-map))
+      (mapcat #(map-keys (partial (:topath config) %)
+                         (with-redis config (car/hgetall* %)))
+              (with-redis config (car/keys "*")))
       (with-redis* config path
         (if subkey
           (car/with-parser (fn [r] (filter #(.startsWith % subkey) r)) (car/hkeys key))
