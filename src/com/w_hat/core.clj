@@ -183,6 +183,13 @@
                               wrap-httpdb-start
                               wrap-httpdb-short-params
                               wrap-httpdb-exceptions))
+  (GET "/name2key.csv" {:as request}
+       (httpkit/with-channel request channel
+         (future
+           (doseq [l (n2k/list-all)]
+             (httpkit/send! channel (str l "\n") false))
+           (httpkit/close channel))
+         (httpkit/send! channel {:status 200 :headers {"Content-Type" "text/plain"}} false)))
   (GET "/hi" [:as r] (str r))
   (route/not-found "Not Found"))
 

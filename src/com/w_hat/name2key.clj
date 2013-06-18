@@ -108,10 +108,10 @@
 (defn make-key-resolve-worker []
   (db/make-dequeue-worker n2k "key-resolve" key2name))
 
-(defn csv
+(defn list-all
   []
-  (clojure.string/join "\n" (map (fn [[k v]] (str k "," (sl/resident-name v)))
-                                 (db/list k2n []))))
+  (map (fn [[k v]] (str k "," (sl/resident-name v)))
+       (db/list k2n [])))
 
 (comment
   (csv)
