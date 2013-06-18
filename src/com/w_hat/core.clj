@@ -24,14 +24,21 @@
       nil      {:status (if use-404? 404 200) :body (if terse? sl/NULL_KEY "None found")}
       (if terse? k (str name " " k)))))
 
+(defn handler-name2key-multi
+  [names terse?]
+  (let [ns (take 50 (re-seq sl/RE_VALID_NAME names))
+        ks (map #(or (n2k/name2key %) sl/NULL_KEY) ns)]
+    (clojure.string/join "\n" (if terse? ks (map #(str %1 " " %2) ns ks)))))
+
 (defn handler-add-keys
   [body]
   (str (n2k/add-keys (re-seq sl/RE_UUID body)) " new keys."))
 
 (defroutes name2key-routes
-  (GET "/" [name terse keys]
+  (GET "/" [name names terse keys]
        (cond keys (handler-add-keys keys)
              name (handler-name2key name terse false)
+             names (handler-name2key-multi names terse)
              :else (redirect "/#name2key")))
   (POST "/" {{:keys [name terse keys]} :params :keys [body]}
        (cond keys (handler-add-keys keys)
