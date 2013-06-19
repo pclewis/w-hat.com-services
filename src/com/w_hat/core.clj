@@ -40,10 +40,10 @@
              name (handler-name2key name terse false)
              names (handler-name2key-multi names terse)
              :else (redirect "/#name2key")))
-  (POST "/" {{:keys [name terse keys]} :params :keys [body]}
+  (POST "/" {{:keys [name terse keys]} :params :keys [body-string]}
        (cond keys (handler-add-keys keys)
              name (handler-name2key name terse false)
-             body (handler-add-keys (slurp body))
+             body-string (handler-add-keys body-string)
              :else {:status 400}))
   (GET "/:name" [name]
        (handler-name2key name true true))
@@ -152,17 +152,16 @@
          (clojure.string/join "\n" (httpdb/list record))
          (:data record)))
 
-  (PUT "/*" {:keys [record params body owner]}
-       (let [body (slurp body)]
-         (httpdb/update-record
-          record
-          (merge
-           (case (:mode params)
-             "append"  {:data [:append body]}
-             "prepend" {:data [:prepend body]}
-             {:data body})
-           (when-not (:exists? record)
-             (select-keys params [:read-password :write-password])))))
+  (PUT "/*" {:keys [record params body-string owner]}
+       (httpdb/update-record
+        record
+        (merge
+         (case (:mode params)
+           "append"  {:data [:append body-string]}
+           "prepend" {:data [:prepend body-string]}
+           {:data body-string})
+         (when-not (:exists? record)
+           (select-keys params [:read-password :write-password]))))
        {:status (if (:exists? record) 200 201) :body (str (:space-free owner))})
 
   (POST "/*" {:keys [record params]}
@@ -206,8 +205,17 @@
     (log/info request)
     (handler request)))
 
+(defn wrap-save-body
+  [handler]
+  (fn [request]
+    (if (:body request)
+      (let [body (slurp (:body request))]
+        (handler (into request {:body (java.io.StringReader. body) :body-string body})))
+      (handler request))))
+
 (def app (-> routes
              wrap-log
+             wrap-save-body
              reload/wrap-reload
              wrap-keyword-params
              wrap-params))
