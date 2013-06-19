@@ -215,10 +215,10 @@
 
 (def app (-> routes
              wrap-log
-             wrap-save-body
              reload/wrap-reload
              wrap-keyword-params
-             wrap-params))
+             wrap-params
+             wrap-save-body))
 
 (defn -main [& args]
   (n2k/make-key-resolve-worker)
