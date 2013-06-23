@@ -223,8 +223,3 @@
 (defn -main [& args]
   (n2k/make-key-resolve-worker)
   (httpkit/run-server app {:port (Integer/parseInt (System/getProperty "port" "8080"))}))
-
-(comment
-  (n2k/name2key "masakazu kojima")
-  (require 'com.w-hat.ndb )
-  (com.w-hat.ndb/list (com.w-hat.ndb/handle :key2name) ["0000"]))
