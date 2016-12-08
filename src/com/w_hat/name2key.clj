@@ -18,7 +18,7 @@
       (if-let [rm (re/match-anywhere RE_SL_RESIDENT_RESULT body)]
         (sl/canonical-name (:name rm))))))
 
-(def ^:private RE_SL_SEARCH_RESULT (re-pattern (str "<a href=\"http://world.secondlife.com/resident/(?<uuid>" sl/RE_UUID ")\"\\s*>" sl/RE_TITLE "</a>")))
+(def ^:private RE_SL_SEARCH_RESULT (re-pattern (str "<a href=\"http://world.secondlife.com/resident/(?<uuid>" sl/RE_UUID ")\"\\s*>\\s*" sl/RE_TITLE "\\s*</a>")))
 (defn sl-search-name
   "Look up a name on SL Search and return a map of all name->key pairs returned. May not include requested name."
   [name]
